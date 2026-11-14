@@ -7,7 +7,7 @@ from src.config.settings import ARTIFACT_DIR
 from src.models import Report, Delivery
 from src.schemas.report import ReportInput
 from src.middlewares.auth import current_user, admin_only
-from src.services import reports
+from src.services import reports, quarantine
 from src.services.audit import record
 from src.utils.serialization import report_dict, delivery_dict
 router=APIRouter()
@@ -22,6 +22,11 @@ def create(data:ReportInput,db=Depends(get_db),u=Depends(admin_only)):
 def toggle(id:int,db=Depends(get_db),u=Depends(admin_only)):
     r=db.get(Report,id)
     if not r:raise HTTPException(404,'分发计划不存在')
+    dataset_id=reports.dataset_id_for_report(db,r)
+    if dataset_id is not None:quarantine.lock_dataset(db,dataset_id)
+    if r:db.refresh(r)
+    if r.quarantined or reports.is_blocked(db,r):
+        raise HTTPException(409,'该分发计划关联的数据批次已隔离处置，不能重新启用')
     r.enabled=not r.enabled;record(db,u.email,'report.toggle',{'id':id,'enabled':r.enabled});db.commit()
     return report_dict(r)
 @router.get('/deliveries')
@@ -32,6 +37,19 @@ def download(id:int,format:str='csv',db=Depends(get_db),u=Depends(current_user))
     d=db.get(Delivery,id)
     if not d:raise HTTPException(404,'归档不存在')
     if format not in ('csv','json'):raise HTTPException(422,'支持 CSV 或 JSON')
+    # Same dataset lock as the quarantine sweep: a download already admitted
+    # before the boundary may complete; one arriving after it is refused.
+    r=db.get(Report,d.report_id)
+    dataset_id=reports.dataset_id_for_report(db,r)
+    if dataset_id is not None:quarantine.lock_dataset(db,dataset_id)
+    db.refresh(d)
+    if r:db.refresh(r)
+    if d.quarantined or reports.is_blocked(db,r):
+        db.rollback()
+        raise HTTPException(409,'该归档所属数据批次已隔离处置，归档保留追查但停止下载')
+    # Release the boundary lock before streaming the file: this download was
+    # admitted inside the boundary, so it may complete.
+    db.commit()
     filename=d.filename+('.json' if format=='json' else '')
     p=os.path.join(ARTIFACT_DIR,filename)
     if not os.path.exists(p):raise HTTPException(404,'归档文件不存在，请重新安排分发')

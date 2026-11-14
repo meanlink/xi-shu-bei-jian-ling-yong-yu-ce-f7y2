@@ -14,7 +14,7 @@ def metadata():
         "pains": ["连续零领用让均值误判需求消失", "一次集中检修拉高短期均值", "预测结果缺少历史回测和参数留痕"],
         "upstream": "ERP 导出的 180 天备件领用日历（包含零需求日）",
         "downstream": "周度维保备料协同会；输出预测用于人工判断，不生成采购单。",
-        "entities": ["领用日历", "预测试算", "周度分发计划"],
+        "entities": ["领用日历", "预测试算", "周度分发计划", "问题批次处置"],
         "dataset_name": "江湾精机_2026Q3_稀疏领用.csv",
         "columns": [{"key": "day", "label": "领用日", "type": "string"}, {"key": "part", "label": "备件编码", "type": "string"}, {"key": "demand", "label": "领用件数", "type": "number"}],
         "parameters": [
